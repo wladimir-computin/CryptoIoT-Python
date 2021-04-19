@@ -141,10 +141,12 @@ class Transport_TCP:
 class Transport_UDP:
 	def __init__(self, ip, port):	
 		self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-		self.sock.connect((ip, port))
+		self.sock.settimeout(2)
+		self.ip = ip
+		self.port = port
 
 	def connect(self):
-		pass
+		self.sock.connect((self.ip, self.port))
 	
 	def close(self):
 		pass
@@ -253,9 +255,13 @@ def main():
 		password = sys.argv[2]
 		payload = sys.argv[3]
 		interactive = (payload == "i")
-
-		transport = Transport_UDP(ip, int(port))
-		#transport = Transport_TCP(ip, int(port))
+		
+		try:
+			transport = Transport_UDP(ip, int(port))
+			#transport = Transport_TCP(ip, int(port))
+		except Exception as x:
+			print(F"Connection failed: {x}")
+			exit()
 		cc = CryptCon(transport, password)
 
 		if interactive:

@@ -6,13 +6,17 @@ import base64
 import socket
 import serial
 import time
+import io
 from Crypto.Cipher import AES
 from Crypto.Hash import SHA512
 from Crypto.Random import get_random_bytes
+from bitstring import ConstBitStream, BitStream, Bits
 from threading import Timer
 from cmd import Cmd
 import re
 import json
+
+ENCRYPTED_CIOTv2_MESSAGE = "CIOTv2:::"
 
 AES256_KEY_LEN = 32
 AES_GCM_TAG_LEN = 16
@@ -27,64 +31,77 @@ UDP_SERVER_PORT = 4647
 
 FLAG_KEEP_ALIVE = "F"
 FLAG_BINARY = "B"
+FLAGS_LEN = 5
 
+		
 class EncryptedMessage:
 	
 	def __init__(self, rawdata):
 		self.rawdata = rawdata
-		data = re.findall(r'\[BEGIN\](.*)\[END\]', self.rawdata)[0]
-		
-		chunks = data.split(":")
-		
-		self.header = chunks[0]
-		self.iv = chunks[1]
-		self.tag = chunks[2]
-		self.ciphertext = chunks[3]
+		self.data = re.findall(r'\[BEGIN\](.*)\[END\]', self.rawdata)[0]
+		if self.data.startswith(ENCRYPTED_CIOTv2_MESSAGE):
+			self.data = self.data.replace(ENCRYPTED_CIOTv2_MESSAGE, "")
+			packet = io.BytesIO(base64.b64decode(self.data))
+			self.iv = packet.read(AES_GCM_IV_LEN)
+			self.tag = packet.read(AES_GCM_TAG_LEN)
+			self.ciphertext = packet.read()
+		else:
+			raise Exception
 		
 	def decrypt(self, key):
-		try:
-			iv = base64.b64decode(self.iv)
-			tag = base64.b64decode(self.tag)
-			ciphertext = base64.b64decode(self.ciphertext)
-			cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-			plaintext = cipher.decrypt_and_verify(ciphertext, tag).decode()
-			chunks = plaintext.split(":")
-			
-			flags = chunks[0]
-			challenge_response = chunks[1]
-			challenge_request = chunks[2]
-			if FLAG_BINARY in flags:
-				payload = chunks[3]
-			else:
-				try:
-					payload = base64.b64decode(chunks[3]).decode()
-				except:
-					payload = chunks[3]
-			
-			return PlaintextMessage(self.header, flags, challenge_response, challenge_request, payload)
-		except Exception as x:
-			return PlaintextMessage(self.header, "", "", "", self.ciphertext)
+		#try:
+		cipher = AES.new(key, AES.MODE_GCM, nonce=self.iv)
+		plaintext = cipher.decrypt_and_verify(self.ciphertext, self.tag)
+		packet = io.BytesIO(plaintext)
+		self.header = packet.read(1).decode()
+		if packet.read(1).decode() != ":":
+			raise Exception
+		flags = packet.read(FLAGS_LEN).decode()
+		if packet.read(1).decode() != ":":
+			raise Exception
+		challenge_response = packet.read(CHALLENGE_LEN)
+		challenge_request = packet.read(CHALLENGE_LEN)
+		if FLAG_BINARY in flags:
+			payload = packet.read()
+		else:
+			try:
+				payload = packet.read().decode()
+			except:
+				payload = ""
+		
+		return PlaintextMessage(self.header, flags, challenge_response, challenge_request, payload)
+		#except Exception as x:
+			#return PlaintextMessage(self.header, "", "", "", self.ciphertext)
 		
 	def __str__(self):
 		return self.rawdata
 		
-	
+
 class PlaintextMessage:
 	
-	def __init__(self, header, flags, challenge_response, challenge_request,  payload,):
+	def __init__(self, header, flags, challenge_response, challenge_request,  payload):
 		self.header = header
-		self.flags = flags
 		self.payload = payload
+
+		if challenge_response == None:
+			challenge_response = bytes(CHALLENGE_LEN)
+		self.flags = flags
 		self.challenge_response = challenge_response
 		self.challenge_request = challenge_request
 		
 	def encrypt(self, key):
 		iv = get_random_bytes(AES_GCM_IV_LEN)
 		cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-		data = f"{self.flags}:{self.challenge_response}:{self.challenge_request}:{base64.b64encode(self.payload.encode()).decode()}".encode()
+		if self.flags != None:
+			fl = bytes(self.flags.encode())
+			fl += b"\0"*(FLAGS_LEN - len(self.flags))
+		else:
+			fl = bytes(5)
+		data = bytes()
+		data += self.header.encode() + b":" + fl + b":" + self.challenge_response + self.challenge_request + self.payload.encode()
 		ciphertext, tag = cipher.encrypt_and_digest(data)
 		
-		return EncryptedMessage(f"[BEGIN]{self.header}:{base64.b64encode(iv).decode()}:{base64.b64encode(tag).decode()}:{base64.b64encode(ciphertext).decode()}[END]")
+		return EncryptedMessage(f"[BEGIN]{ENCRYPTED_CIOTv2_MESSAGE}{base64.b64encode(iv+tag+ciphertext).decode()}[END]")
 	
 	def __str__(self):
 		return f"{self.header}:{self.flags}:{self.challenge_response}:{self.challenge_request}:{self.payload}"
@@ -93,7 +110,7 @@ class PlaintextMessage:
 class ChallengeManager:
 	
 	def __init__(self):
-		self.challenge_response = ""
+		self.challenge_response = bytes(CHALLENGE_LEN)
 	
 	def getExpectedChallengeResponse(self):
 		return self.challenge_request
@@ -103,7 +120,7 @@ class ChallengeManager:
 		
 	def resetChallenge(self):
 		self.timer.cancel()
-		self.challenge_response = ""
+		self.challenge_response = bytes(CHALLENGE_LEN)
 		
 	def verifyChallenge(self, challenge_response):
 		return self.challenge_request == challenge_response
@@ -115,7 +132,7 @@ class ChallengeManager:
 		self.timer.start()
 	
 	def generateChallenge(self):
-		self.challenge_request = base64.b64encode(get_random_bytes(CHALLENGE_LEN)).decode()
+		self.challenge_request = get_random_bytes(CHALLENGE_LEN)
 		return self.challenge_request
 	
 
@@ -144,7 +161,7 @@ class Transport_TCP:
 class Transport_UDP:
 	def __init__(self, ip, port):	
 		self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-		self.sock.settimeout(1)
+		self.sock.settimeout(2)
 		self.ip = ip
 		self.port = port
 
@@ -206,11 +223,15 @@ class CryptCon:
 		self.chman = ChallengeManager()
 	
 	def send(self, payload):
-		if(self.chman.getCurrentChallengeResponse() == ""):
-			message = PlaintextMessage("HELLO", "", "", self.chman.generateChallenge(), "")
+		if self.chman.getCurrentChallengeResponse() == bytes(CHALLENGE_LEN):
+			message = PlaintextMessage("H", None, None, self.chman.generateChallenge(), "")
 			encrypted = message.encrypt(self.key)
 			self.transport.connect()
-			encrypted_response = EncryptedMessage(self.transport.send(encrypted.rawdata.encode()).decode())
+			try:
+				encrypted_response = EncryptedMessage(self.transport.send(encrypted.rawdata.encode()).decode())
+			except:
+				print("Communication failed, wrong password?")
+				return
 			response = encrypted_response.decrypt(self.key)
 			if self.chman.verifyChallenge(response.challenge_response):
 				self.chman.rememberChallengeResponse(response.challenge_request)
@@ -219,10 +240,11 @@ class CryptCon:
 		else:
 			self.transport.connect()
 		
-		message = PlaintextMessage("DATA", "", self.chman.getCurrentChallengeResponse(), self.chman.generateChallenge(), payload)
+		message = PlaintextMessage("D", None, self.chman.getCurrentChallengeResponse(), self.chman.generateChallenge(), payload)
 		encrypted = message.encrypt(self.key)
 		encrypted_response = EncryptedMessage(self.transport.send(encrypted.rawdata.encode()).decode())
 		response = encrypted_response.decrypt(self.key)
+		response.flags = response.flags.replace("\0", "")
 		self.transport.close()
 		if self.chman.verifyChallenge(response.challenge_response):
 			self.chman.rememberChallengeResponse(response.challenge_request)
@@ -238,7 +260,7 @@ class CryptCon:
 		s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, True)
 		s.settimeout(0.2)
 
-		s.sendto("[BEGIN]HELLO:::discover[END]".encode(), ("<broadcast>", UDP_SERVER_PORT))
+		s.sendto("[BEGIN]CIOTv2:::discover[END]".encode(), ("<broadcast>", UDP_SERVER_PORT))
 		devicenames = []
 		while True:
 			try:
@@ -247,27 +269,30 @@ class CryptCon:
 				break
 			
 		devicenames = sorted(devicenames, key=lambda item: item[1][0])
-		
 		for device in devicenames:
 			try:
-				name = re.findall(r'\[BEGIN\]DATA:::(.*)\[END\]', device[0].decode())[0]
+				name = re.findall(r'\[BEGIN\]CIOTv2:::(.*)\[END\]', device[0].decode())[0]
 				ip = device[1][0]
 				print(f"{name} : {ip}")
 			except:
 				pass
 			
-			
 class MyPrompt(Cmd):
 	
 	def __init__(self, cc):
 		self.cc = cc;
-		response = self.cc.send("discover").replace("DATA::", "")
-		if "ERROR" in response:
-			response = ""
-		#name = response.split(":")[1]
-		name = "old"
-		self.prompt = f"{name}-># "
-		super().__init__()
+		try:
+			response = self.cc.send("discover")
+			response = response.replace("\0\0\0\0\0", "")
+			response = response.replace("D::", "")
+			if "ERROR" in response:
+				response = ""
+			name = response.split(":")[1]
+			self.prompt = f"{name}-># "
+			super().__init__()
+		except Exception as x:
+			raise x
+			exit()
 		
 	def emptyline(self):
 		pass
@@ -279,12 +304,13 @@ class MyPrompt(Cmd):
 		commands = line.split(":")
 		
 		if len(commands) == 2:
-			response = self.cc.send("reads").replace("DATA:F:", "")
+			response = self.cc.send("reads")
+			response = response.rstrip().replace("D:F:", "")
 			if "ERROR" not in response:
 				return [vault for vault in response.split("\n") if vault.lower().startswith(text.lower())]
 		
 		if len(commands) == 3:
-			response = self.cc.send("reads:" + commands[1]).replace("DATA:F:", "")
+			response = self.cc.send("reads:" + commands[1]).replace("D:F:", "")
 			if "ERROR" not in response:
 				keys = json.loads(response).keys()
 				return [key for key in keys if key.lower().startswith(text.lower())]
@@ -296,7 +322,7 @@ class MyPrompt(Cmd):
 		
 		if len(commands) == 4:
 			if commands[3] == "":
-				response = self.cc.send("reads:" + commands[1] + ":" + commands[2]).replace("DATA:F:", "")
+				response = self.cc.send("reads:" + commands[1] + ":" + commands[2]).replace("D:F:", "")
 				if "ERROR" not in response:
 					return [response]
 		else:
@@ -317,8 +343,6 @@ def handler(signum, frame):
 
 def main():
 	signal.signal(signal.SIGINT, handler)
-	CryptCon.discover()
-	print()
 	cc = None
 	if len(sys.argv) == 4:
 		if ":" in sys.argv[1]:
@@ -355,7 +379,9 @@ def main():
 		else:
 			print(cc.send(payload));
 			exit()
-		
+	else:
+		CryptCon.discover()
+		print()
 
 if __name__== "__main__":
 	main()

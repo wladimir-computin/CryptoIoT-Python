@@ -426,6 +426,19 @@ class MyPrompt(Cmd):
 			else:
 				if len(self.api[commands[0]]) > 0:
 					return [F"{completes[0]}:"]
+					
+	def do_help(self, *args):
+		Cmd.do_help(self, *args)
+		print("Available system commands:")
+		print("======================	")
+		print(self.cc.send("help").replace("D::", ""))
+		print("Available app commands:")
+		print("======================")
+		for appname in self.apps.keys():
+			print(F"\n=== {appname} ===")
+			print(self.cc.send(F"help:{appname}").replace("D::", ""))
+		
+        
 
 def exit():
 	print()

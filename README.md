@@ -49,3 +49,12 @@ Uptime: 9:06:17:41
 [...]
 ```
 
+### Get help
+```bash
+DeviceName-># help
+
+[...]
+```
+
+You can also use tab completion!
+

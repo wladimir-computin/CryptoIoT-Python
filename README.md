@@ -1,7 +1,6 @@
 # CryptoIoT-Python
-Hubless smarthome OS with E2E-encrypted communication
+Hubless smarthome OS with E2E-encrypted communication. Repo for Python Client. 
 
-Serverless smarthome OS with E2E-encrypted communication. Repo for Python Client. 
 
 ## Dependencies
 ```bash
@@ -13,6 +12,7 @@ pip3 install -r requirements.txt
 ### Defaults:
 
 Default local IP in AP-Mode: `192.168.4.1`
+
 Default Password: `TestTest1`
 
 ### Scan for CryptioIoT devices:

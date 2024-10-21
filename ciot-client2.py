@@ -280,16 +280,37 @@ class CryptCon:
 class MyPrompt(Cmd):
 	
 	def __init__(self, cc):
-		self.cc = cc;
+		self.cc = cc
+		self.api = {}
+		self.apps = {}
 		try:
 			response = self.cc.send("discover")
-			response = response.replace("\0\0\0\0\0", "")
-			response = response.replace("D::", "")
-			if "ERROR" in response:
-				response = ""
-			name = response.split(":")[1]
-			self.prompt = f"{name}-># "
-			super().__init__()
+			if response is not None:
+				response = response.replace("\0\0\0\0\0", "")
+				response = response.replace("D::", "")
+				api_temp = json.loads(self.cc.send("api").replace("D::", ""))
+				for cmd_obj in api_temp:
+					key = list(cmd_obj.keys())[0]
+					self.api[key] = cmd_obj[key]
+				api_temp = json.loads(self.cc.send("apps").replace("D::", ""))
+				for app_obj in api_temp:
+					key = list(app_obj.keys())[0]
+					self.apps[key] = app_obj[key]
+					
+					app_api = json.loads(self.cc.send(F"api:{key}").replace("D::", ""))
+					self.api[key] = {}
+					for app_api_obj in app_api:
+						app_api_key = list(app_api_obj.keys())[0]
+						self.api[key][app_api_key] = app_api_obj[app_api_key]
+				if "ERROR" in response:
+					response = ""
+				name = response.split(":")[1]
+				self.prompt = f"{name}-># "
+				super().__init__()
+			else:
+				print("Exiting!")
+				exit()
+				
 		except Exception as x:
 			raise x
 			exit()
@@ -307,13 +328,22 @@ class MyPrompt(Cmd):
 			response = self.cc.send("reads")
 			response = response.rstrip().replace("D:F:", "")
 			if "ERROR" not in response:
-				return [vault for vault in response.split("\n") if vault.lower().startswith(text.lower())]
+				completes = [vault for vault in response.split("\n") if vault.lower().startswith(text.lower())]
+				if not (len(completes) == 1 and completes[0] == text):
+					return completes
+				else:
+					return [F"{completes[0]}:"]
 		
 		if len(commands) == 3:
 			response = self.cc.send("reads:" + commands[1]).replace("D:F:", "")
 			if "ERROR" not in response:
 				keys = json.loads(response).keys()
-				return [key for key in keys if key.lower().startswith(text.lower())]
+				completes = [key for key in keys if key.lower().startswith(text.lower())]
+				if not (len(completes) == 1 and completes[0] == text):
+					return completes
+				else:
+					if commands[0] == "writes":
+						return [F"{completes[0]}:"]
 		
 		return []
 		
@@ -330,9 +360,59 @@ class MyPrompt(Cmd):
 		
 	def complete_reset(self, text, line, begidx, endidx):
 		return self.complete_reads(text,line,begidx,endidx)
+		
+	def complete_api(self, text, line, begidx, endidx):
+		commands = line.split(":")
+		
+		if len(commands) == 2:
+			return [app for app in self.apps.keys() if app.startswith(commands[1])]
 
 	def default(self, inp):
 		print(self.cc.send(inp) + "\n");
+		
+	def completedefault(self, text, line, begidx, endidx):
+		commands = line.split(":")
+		# Context is an App, completing command:
+		if len(commands) == 2 and commands[0] in self.apps:
+			completes = [cmd for cmd in self.api[commands[0]].keys() if cmd.startswith(commands[1])]
+			if not (len(completes) == 1 and completes[0] == text):
+				return completes
+			else:
+				if len(self.api[commands[0]][commands[1]]) > 0:
+					return [F"{completes[0]}:"]
+		# Context is an App with given command, completing paramaters
+		elif len(commands) >= 3 and commands[0] in self.apps:
+			if commands[len(commands)-1] == "":
+				param = list(self.api[commands[0]][commands[1]].keys())[len(commands)-3]
+				value = self.api[commands[0]][commands[1]][param]
+				type = value["type"]
+				optional = '?' if 'optional' in value and value["optional"] else ''
+				return [F"{optional}[{param}|{type}]"]
+			else:
+				if len(list(self.api[commands[0]][commands[1]].keys())) >= len(commands)-1:
+					return [":"]
+		# Context is a system command, completing paramaters
+		elif len(commands) >= 2:
+			if commands[len(commands)-1] == "":
+				param = list(self.api[commands[0]].keys())[len(commands)-2]
+				value = self.api[commands[0]][param]
+				type = value["type"]
+				optional = '?' if 'optional' in value and value["optional"] else ''
+				return [F"{optional}[{param}|{type}]"]
+			else:
+				if len(list(self.api[commands[0]].keys())) >= len(commands):
+					return [":"]
+		return []
+		
+	def completenames(self, text, *a):
+		commands = text.split(":")
+		if len(commands) == 1:
+			completes = [cmd for cmd in self.api.keys() if cmd.startswith(text)]
+			if not (len(completes) == 1 and completes[0] == text):
+				return completes
+			else:
+				if len(self.api[commands[0]]) > 0:
+					return [F"{completes[0]}:"]
 
 def exit():
 	print()

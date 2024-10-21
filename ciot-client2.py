@@ -10,7 +10,6 @@ import io
 from Crypto.Cipher import AES
 from Crypto.Hash import SHA512
 from Crypto.Random import get_random_bytes
-from bitstring import ConstBitStream, BitStream, Bits
 from threading import Timer
 from cmd import Cmd
 import re
@@ -32,6 +31,8 @@ UDP_SERVER_PORT = 4647
 FLAG_KEEP_ALIVE = "F"
 FLAG_BINARY = "B"
 FLAGS_LEN = 5
+
+DEFAULT_LOCAL_IP = "192.168.4.1"
 
 		
 class EncryptedMessage:
@@ -242,18 +243,30 @@ class CryptCon:
 		
 		message = PlaintextMessage("D", None, self.chman.getCurrentChallengeResponse(), self.chman.generateChallenge(), payload)
 		encrypted = message.encrypt(self.key)
-		encrypted_response = EncryptedMessage(self.transport.send(encrypted.rawdata.encode()).decode())
-		response = encrypted_response.decrypt(self.key)
-		response.flags = response.flags.replace("\0", "")
-		self.transport.close()
-		if self.chman.verifyChallenge(response.challenge_response):
-			self.chman.rememberChallengeResponse(response.challenge_request)
-			return f"{response.header}:{response.flags}:{response.payload}"
+		response = self.transport.send(encrypted.rawdata.encode()).decode()
+		if "ERROR" not in response:
+			encrypted_response = EncryptedMessage(response)
+			response = encrypted_response.decrypt(self.key)
+			if response.header != "H":
+				response.flags = response.flags.replace("\0", "")
+				self.transport.close()
+				if self.chman.verifyChallenge(response.challenge_response):
+					self.chman.rememberChallengeResponse(response.challenge_request)
+					return f"{response.header}:{response.flags}:{response.payload}"
+				else:
+					if response.payload == "Nope!":
+						self.chman.resetChallenge();
+						return self.send(payload)
+					return f"ERROR: {response.payload}"
+			else:
+				if self.chman.verifyChallenge(response.challenge_response):
+					self.chman.rememberChallengeResponse(response.challenge_request)
+					self.send(payload)
+				else:
+					return None
 		else:
-			if response.payload == "Nope!":
-				self.chman.resetChallenge();
-				return self.send(payload)
-			return f"ERROR: {response.payload}"
+			self.chman.resetChallenge();
+			return re.findall(r'\[BEGIN\](.*)\[END\]', response)[0]
 		
 	def discover():
 		s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -424,15 +437,19 @@ def handler(signum, frame):
 def main():
 	signal.signal(signal.SIGINT, handler)
 	cc = None
-	if len(sys.argv) == 4:
-		if ":" in sys.argv[1]:
-			ip, port = sys.argv[1].split(":")
+	if len(sys.argv) >= 3:
+		if ":" in sys.argv[1] or not sys.argv[1].startswith("/"):
+			ip = DEFAULT_LOCAL_IP
+			port = UDP_SERVER_PORT
+			if ":" in sys.argv[1]:
+				ip = sys.argv[1].split(":")[0]
+				port = int(sys.argv[1].split(":")[1])
+			else:
+				ip = sys.argv[1]
 			password = sys.argv[2]
-			payload = sys.argv[3]
-			interactive = (payload == "i")
 			
 			try:
-				transport = Transport_UDP(ip, int(port))
+				transport = Transport_UDP(ip, port)
 				#transport = Transport_TCP(ip, int(port))
 			except Exception as x:
 				print(F"Connection failed: {x}")
@@ -443,7 +460,6 @@ def main():
 			device = sys.argv[1]
 			baud = sys.argv[2]
 			payload = sys.argv[3]
-			interactive = (payload == "i")
 			
 			try:
 				transport = Transport_SERIAL(device, baud)
@@ -451,11 +467,16 @@ def main():
 				print(F"Connection failed: {x}")
 				exit()
 			cc = PlainCon(transport)
+			
+		if len(sys.argv) == 4:
+			payload = sys.argv[3]
+			interactive = (payload == "i")
+		else:
+			interactive = True
 
 		if interactive:
 			prompt = MyPrompt(cc)
 			prompt.cmdloop()
-
 		else:
 			print(cc.send(payload));
 			exit()

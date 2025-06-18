@@ -44,6 +44,34 @@ FLAGS_LEN = 5
 DEFAULT_LOCAL_IP = "192.168.4.1"
 DEFAULT_SERIAL_BAUD = 115200
 
+
+
+class Logger:
+    level = 3
+
+    def debug(self, stuff=""):
+        if self.level >= 4:
+            print(f"[WTF] {stuff}")
+
+    def print(self, stuff=""):
+        if self.level >= 3:
+            print(stuff)
+
+    def info(self, stuff=""):
+        if self.level >= 3:
+            print(f"[+] {stuff}")
+
+    def warn(self, stuff=""):
+        if self.level >= 2:
+            print(f"[-] {stuff}")
+
+    def error(self, stuff=""):
+        if self.level >= 1:
+            print(f"[!] {stuff}")
+
+log = Logger()
+
+
 class DiscoveryDevice(NamedTuple):
     devicename : str
     devicetype : str
@@ -251,7 +279,7 @@ class Discovery:
             except TimeoutError:
                 return network_devices
             except Exception as x:
-                print(x)
+                log.error(x)
 
     def discoverSerial(baud=DEFAULT_SERIAL_BAUD):
         serial_devices = []
@@ -268,7 +296,7 @@ class Discovery:
                             result = DiscoveryDevice(devicename=data[3], devicetype=data[2], deviceid=data[4], devicepath=d.device)
                             serial_devices.append(result)
                 except Exception as x:
-                    print(x)
+                    log.error(x)
         return serial_devices
 
     def filterDevice(devices, devicetype):
@@ -276,12 +304,12 @@ class Discovery:
             devices = [d for d in devices if d.devicetype.lower() == devicetype.lower()]
         if devices:
             if len(devices) > 1:
-                print (f"Warning, found multiple matching devices:")
+                log.warn(f"Warning, found multiple matching devices:")
                 for d in devices:
-                    print(d)
+                    log.print(d)
 
             d = devices[0]
-            print(f"Using: {d}")
+            log.info(f"Using: {d}")
         return devices[0]
 
 class PlainCon:
@@ -311,7 +339,7 @@ class CryptCon:
             try:
                 encrypted_response = EncryptedMessage(self.transport.send(encrypted.rawdata.encode()).decode())
             except:
-                print("Communication failed, wrong password?")
+                log.error("Communication failed, wrong password?")
                 return
             response = encrypted_response.decrypt(self.key)
             if self.chman.verifyChallenge(response.challenge_response):
@@ -379,7 +407,7 @@ class MyPrompt(Cmd):
                 self.prompt = f"{name}-># "
                 super().__init__()
             else:
-                print("Exiting!")
+                log.info("Exiting!")
                 exit()
 
         except Exception as x:
@@ -513,6 +541,9 @@ def main():
     # Create mutually exclusive group for connection types
     connection_group = parser.add_mutually_exclusive_group(required=False)
 
+    parser.add_argument('--verbosity', '-v', default=3, type=int, help='0 is quiet, 4 is loud')
+
+
     # Network connection arguments
     connection_group.add_argument('--network', '-n', metavar='HOST' ,
                                 help=f'Network connection (IP or hostname)')
@@ -534,6 +565,9 @@ def main():
     connection_group.add_argument('--autonetwork', '-N', nargs='?', default='NOT_SET', metavar='DEVICETYPE', help='Use first network device matching type (optional)')
 
     args = parser.parse_args()
+
+    log.level = args.verbosity
+
     try:
         if args.network or args.autonetwork != "NOT_SET":
             if args.network:
@@ -546,7 +580,7 @@ def main():
                 #transport = Transport_TCP(ip, int(port))
                 cc = CryptCon(transport, args.password)
             else:
-                print("No CIoT devices found, exiting.")
+                log.error("No CIoT devices found, exiting.")
                 sys.exit(1)
 
         elif args.serial or args.autoserial != "NOT_SET":
@@ -559,26 +593,26 @@ def main():
                 transport = Transport_SERIAL(serial_device, args.baud)
                 cc = PlainCon(transport)
             else:
-                print("No CIoT devices found, exiting.")
+                log.error("No CIoT devices found, exiting.")
                 sys.exit(1)
 
         else:
             network_devices = Discovery.discoverNetwork()
             if network_devices:
-                print("=== Network Devices ===")
+                log.print("=== Network Devices ===")
                 for d in network_devices:
-                    print(d)
-                print()
+                    log.print(d)
+                log.print()
 
             serial_devices = Discovery.discoverSerial()
             if serial_devices:
-                print("=== Serial Devices ===")
+                log.print("=== Serial Devices ===")
                 for d in serial_devices:
-                    print(d)
-                print()
+                    log.print(d)
+                log.print()
 
             if not network_devices and not serial_devices:
-                print("No devices found. Use -h for help.\n")
+                log.error("No devices found. Use -h for help.\n")
                 sys.exit(1)
             return
 
@@ -591,7 +625,7 @@ def main():
             prompt.cmdloop()
 
     except Exception as x:
-            print(F"Unhandled error: {x}")
+            log.error(F"Unhandled error: {x}")
             traceback.print_exc()
             sys.exit(1)
 

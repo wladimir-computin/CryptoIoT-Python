@@ -618,7 +618,7 @@ def main():
 
         if args.command:
             for cmd in args.command:
-                print(f"{cmd} -> ", end='')
+                log.print(f"{cmd} -> ", end='')
                 print(cc.send(cmd));
         else:
             prompt = MyPrompt(cc)

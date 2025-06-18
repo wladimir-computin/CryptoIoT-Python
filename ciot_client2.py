@@ -246,8 +246,8 @@ class Transport_SERIAL:
         out += self.ser.read(self.ser.in_waiting)
         try:
             return out.decode("UTF-8")[0:-1]
-        except:
-            return ""
+        except Exception as x:
+            print(x)
 
 class Discovery:
 
@@ -574,15 +574,17 @@ def main():
             if args.network:
                 network = args.network
             else:
-                network = Discovery.filterDevice(Discovery.discoverNetwork(), args.autonetwork).devicepath
+                networks = Discovery.filterDevice(Discovery.discoverNetwork(), args.autonetwork)
+                if networks
+                    network = networks.devicepath
+                else
+                    log.error("No CIoT devices found, exiting.")
+                    sys.exit(1)
 
-            if network:
-                transport = Transport_UDP(network, args.port)
-                #transport = Transport_TCP(ip, int(port))
-                cc = CryptCon(transport, args.password)
-            else:
-                log.error("No CIoT devices found, exiting.")
-                sys.exit(1)
+
+            transport = Transport_UDP(network, args.port)
+            #transport = Transport_TCP(ip, int(port))
+            cc = CryptCon(transport, args.password)
 
         elif args.serial or args.autoserial != "NOT_SET":
             if args.serial:
@@ -620,7 +622,7 @@ def main():
         if args.command:
             for cmd in args.command:
                 log.print(f"{cmd} -> ", end='')
-                print(cc.send(cmd));
+                print(cc.send(cmd))
         else:
             prompt = MyPrompt(cc)
             prompt.cmdloop()

@@ -243,11 +243,17 @@ class Transport_SERIAL:
         time.sleep(0.1)
         self.ser.read(len(data.encode("UTF-8"))+2)
         out = b""
-        out += self.ser.read(self.ser.in_waiting)
         try:
-            return out.decode("UTF-8")[0:-1]
+            for i in range(100):
+                out += self.ser.read(self.ser.in_waiting)
+                if out:
+                    return out.decode("UTF-8")[0:-1]
+                time.sleep(0.1)
+            log.warn("Timeout, no response received.")
+
         except Exception as x:
             print(x)
+            return ""
 
 class Discovery:
 

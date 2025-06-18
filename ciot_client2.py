@@ -596,14 +596,16 @@ def main():
             if args.serial:
                 serial_device = args.serial
             else:
-                serial_device = Discovery.filterDevice(Discovery.discoverSerial(), args.autoserial).devicepath
+                serial_devices = Discovery.filterDevice(Discovery.discoverSerial(), args.autoserial)
+                if(serial_devices):
+                    serial_device = serial_devices.devicepath
+                else:
+                    log.error("No CIoT devices found, exiting.")
+                    sys.exit(1)
 
-            if serial_device:
-                transport = Transport_SERIAL(serial_device, args.baud)
-                cc = PlainCon(transport)
-            else:
-                log.error("No CIoT devices found, exiting.")
-                sys.exit(1)
+            transport = Transport_SERIAL(serial_device, args.baud)
+            cc = PlainCon(transport)
+
 
         else:
             network_devices = Discovery.discoverNetwork()

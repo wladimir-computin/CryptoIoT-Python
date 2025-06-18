@@ -577,7 +577,7 @@ def main():
                 networks = Discovery.filterDevice(Discovery.discoverNetwork(), args.autonetwork)
                 if networks:
                     network = networks.devicepath
-                else
+                else:
                     log.error("No CIoT devices found, exiting.")
                     sys.exit(1)
 

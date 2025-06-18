@@ -534,7 +534,6 @@ def main():
     connection_group.add_argument('--autonetwork', '-N', nargs='?', default='NOT_SET', metavar='DEVICETYPE', help='Use first network device matching type (optional)')
 
     args = parser.parse_args()
-    print(args)
     try:
         if args.network or args.autonetwork != "NOT_SET":
             if args.network:

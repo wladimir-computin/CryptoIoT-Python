@@ -53,9 +53,9 @@ class Logger:
         if self.level >= 4:
             print(f"[WTF] {stuff}")
 
-    def print(self, stuff=""):
+    def print(self, *args, **kwargs):
         if self.level >= 3:
-            print(stuff)
+            print(*args, **kwargs)
 
     def info(self, stuff=""):
         if self.level >= 3:
@@ -310,7 +310,8 @@ class Discovery:
 
             d = devices[0]
             log.info(f"Using: {d}")
-        return devices[0]
+            return devices[0]
+        return None
 
 class PlainCon:
     def __init__(self, transport):

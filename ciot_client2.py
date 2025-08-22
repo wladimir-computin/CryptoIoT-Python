@@ -611,6 +611,7 @@ def main():
             network_devices = Discovery.discoverNetwork()
             if network_devices:
                 log.print("=== Network Devices ===")
+                network_devices.sort(key=lambda x: x.devicepath)
                 for d in network_devices:
                     log.print(d)
                 log.print()

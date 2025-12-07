@@ -270,7 +270,7 @@ class Discovery:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, True)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Also helpful on macOS
         s.bind(('', 0))  # Bind to any available port on all interfaces
-        s.settimeout(0.2)
+        s.settimeout(0.5)
 
         s.sendto("[BEGIN]CIOTv2:::discover[END]".encode(), ("<broadcast>", UDP_SERVER_PORT))
         network_devices = []

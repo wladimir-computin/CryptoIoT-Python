@@ -219,9 +219,7 @@ class Transport_UDP:
         pass
 
     def send(self, data):
-        print(data)
         self.sock.send(data)
-        print(1)
         out = self.sock.recv(2048);
         if len(out):
             return out

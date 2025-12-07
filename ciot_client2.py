@@ -268,6 +268,8 @@ class Discovery:
     def discoverNetwork() -> list[tuple[str, str]]:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, True)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Also helpful on macOS
+        s.bind(('', 0))  # Bind to any available port on all interfaces
         s.settimeout(0.2)
 
         s.sendto("[BEGIN]CIOTv2:::discover[END]".encode(), ("<broadcast>", UDP_SERVER_PORT))

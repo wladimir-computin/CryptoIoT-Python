@@ -219,17 +219,18 @@ class Transport_UDP:
         pass
 
     def send(self, data):
+        print(data)
         self.sock.send(data)
-        for i in range(3):
-            out = self.sock.recv(2048);
-            if len(out):
-                return out
+        print(1)
+        out = self.sock.recv(2048);
+        if len(out):
+            return out
         return None
 
 class Transport_SERIAL:
     ser = None
     def __init__(self, device, baud):
-        self.ser = serial.Serial(device, baudrate=baud, timeout=0.5)
+        self.ser = serial.Serial(device, baudrate=baud, timeout=1)
 
     def connect(self):
         pass
